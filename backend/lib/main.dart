@@ -11,6 +11,8 @@ import 'routes/menu.dart';
 import 'routes/table.dart';
 import 'routes/order.dart';
 import 'routes/report.dart';
+import 'routes/shifts.dart';
+import 'routes/notifications.dart';
 import 'routes/user.dart';
 
 final _log = Logger('RestaurantBackend');
@@ -73,6 +75,8 @@ Future<void> main() async {
     ..mount('/tables/', TableRouter().router.call)
     ..mount('/orders/', OrderRouter().router.call)
     ..mount('/reports/', ReportRouter().router.call)
+    ..mount('/shifts/', ShiftsRouter().router.call)
+    ..mount('/notifications/', NotificationsRouter().router.call)
     ..mount('/users/', UserRouter().router.call);
 
   // Add middleware (CORS, logging)

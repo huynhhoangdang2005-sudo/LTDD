@@ -462,6 +462,145 @@ class ApiService {
       );
     }
   }
+
+    // ── Daily / Monthly Report API ──────────────────────
+  static Future<List<Map<String, dynamic>>> getDailyReport(String token) async {
+    final res = await http
+        .get(
+          Uri.parse('$baseUrl/reports/daily'),
+          headers: {'Authorization': 'Bearer $token'},
+        )
+        .timeout(_requestTimeout);
+    if (res.statusCode == 200) {
+      final List j = jsonDecode(res.body);
+      return j.map((e) => e as Map<String, dynamic>).toList();
+    }
+    return [];
+  }
+
+  static Future<List<Map<String, dynamic>>> getMonthlyReport(String token) async {
+    final res = await http
+        .get(
+          Uri.parse('$baseUrl/reports/monthly'),
+          headers: {'Authorization': 'Bearer $token'},
+        )
+        .timeout(_requestTimeout);
+    if (res.statusCode == 200) {
+      final List j = jsonDecode(res.body);
+      return j.map((e) => e as Map<String, dynamic>).toList();
+    }
+    return [];
+  }
+
+  // ── Shifts API ──────────────────────────────────────
+  static Future<List<Map<String, dynamic>>> getShifts(String token) async {
+    final res = await http
+        .get(
+          Uri.parse('$baseUrl/shifts/'),
+          headers: {'Authorization': 'Bearer $token'},
+        )
+        .timeout(_requestTimeout);
+    if (res.statusCode == 200) {
+      final List j = jsonDecode(res.body);
+      return j.map((e) => e as Map<String, dynamic>).toList();
+    }
+    return [];
+  }
+
+  static Future<void> createShift(String token, Map<String, dynamic> data) async {
+    final res = await http
+        .post(
+          Uri.parse('$baseUrl/shifts/'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode(data),
+        )
+        .timeout(_requestTimeout);
+    if (res.statusCode != 200) {
+      throw Exception(jsonDecode(res.body)['error'] ?? 'Tạo ca thất bại');
+    }
+  }
+
+  static Future<void> deleteShift(String token, int id) async {
+    final res = await http
+        .delete(
+          Uri.parse('$baseUrl/shifts/$id'),
+          headers: {'Authorization': 'Bearer $token'},
+        )
+        .timeout(_requestTimeout);
+    if (res.statusCode != 200) {
+      throw Exception(jsonDecode(res.body)['error'] ?? 'Xóa ca thất bại');
+    }
+  }
+
+  // ── Notifications API ───────────────────────────────
+  static Future<List<Map<String, dynamic>>> getNotifications(String token) async {
+    final res = await http
+        .get(
+          Uri.parse('$baseUrl/notifications/'),
+          headers: {'Authorization': 'Bearer $token'},
+        )
+        .timeout(_requestTimeout);
+    if (res.statusCode == 200) {
+      final List j = jsonDecode(res.body);
+      return j.map((e) => e as Map<String, dynamic>).toList();
+    }
+    return [];
+  }
+
+  static Future<void> markNotificationRead(String token, int id) async {
+    await http.put(
+      Uri.parse('$baseUrl/notifications/$id/read'),
+      headers: {'Authorization': 'Bearer $token'},
+    ).timeout(_requestTimeout);
+  }
+
+  // ── Menu Item CRUD API ──────────────────────────────
+  static Future<void> createMenuItem(String token, Map<String, dynamic> data) async {
+    final res = await http
+        .post(
+          Uri.parse('$baseUrl/menu/items'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode(data),
+        )
+        .timeout(_requestTimeout);
+    if (res.statusCode != 200) {
+      throw Exception(jsonDecode(res.body)['error'] ?? 'Thêm món thất bại');
+    }
+  }
+
+  static Future<void> updateMenuItem(String token, int id, Map<String, dynamic> data) async {
+    final res = await http
+        .put(
+          Uri.parse('$baseUrl/menu/items/$id'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode(data),
+        )
+        .timeout(_requestTimeout);
+    if (res.statusCode != 200) {
+      throw Exception(jsonDecode(res.body)['error'] ?? 'Sửa món thất bại');
+    }
+  }
+
+  static Future<void> deleteMenuItem(String token, int id) async {
+    final res = await http
+        .delete(
+          Uri.parse('$baseUrl/menu/items/$id'),
+          headers: {'Authorization': 'Bearer $token'},
+        )
+        .timeout(_requestTimeout);
+    if (res.statusCode != 200) {
+      throw Exception(jsonDecode(res.body)['error'] ?? 'Xóa món thất bại');
+    }
+  }
 }
 
 // ─────────────────────────── MAIN ───────────────────────────────
@@ -1403,7 +1542,13 @@ class _AdminShellState extends State<AdminShell> {
         );
         break;
       case 'menu':
-        body = AdminMenuScreen(menu: _menu, cats: _cats, onNavigate: _navigate);
+        body = AdminMenuScreen(
+          menu: _menu,
+          cats: _cats,
+          onNavigate: _navigate,
+          token: widget.user.token,
+          onChanged: _loadData,
+        );
         break;
       case 'invoices':
         body = AdminInvoicesScreen(
@@ -1538,6 +1683,7 @@ class _AdminShellState extends State<AdminShell> {
         break;
       case 'shifts':
         body = AdminShiftsScreen(
+          token: widget.user.token,
           onBack: () => setState(() => _screen = 'home'),
         );
         break;
@@ -1563,6 +1709,7 @@ class _AdminShellState extends State<AdminShell> {
         break;
       case 'notifications':
         body = AdminNotificationsScreen(
+          token: widget.user.token,
           onBack: () => setState(() => _screen = 'home'),
         );
         break;
@@ -1692,6 +1839,30 @@ class AdminHomeScreen extends StatelessWidget {
           (order) => order.status == 'pending' || order.status == 'cooking',
         )
         .length;
+
+    // Compute 7-day revenue chart from real order data
+    final _chartValues = <double>[];
+    final now = DateTime.now();
+    for (var i = 0; i < 7; i++) {
+      final day = now.subtract(Duration(days: 6 - i));
+      double daySum = 0;
+      for (final order in orders) {
+        if (order.status != 'paid') continue;
+        try {
+          final oc = DateTime.parse(order.createdAt.replaceFirst(' ', 'T'));
+          if (oc.year == day.year &&
+              oc.month == day.month &&
+              oc.day == day.day) {
+            daySum += order.total.toDouble();
+          }
+        } catch (_) {}
+      }
+      _chartValues.add(daySum);
+    }
+    final _chartMax = _chartValues.isEmpty
+        ? 0.0
+        : _chartValues.reduce((a, b) => a > b ? a : b);
+    final _maxY = _chartMax <= 0 ? 10.0 : _chartMax;
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -1840,20 +2011,21 @@ class AdminHomeScreen extends StatelessWidget {
                             child: BarChart(
                               BarChartData(
                                 alignment: BarChartAlignment.spaceAround,
-                                maxY: 10,
+                                maxY: _maxY,
                                 barTouchData: BarTouchData(enabled: false),
                                 titlesData: const FlTitlesData(show: false),
                                 borderData: FlBorderData(show: false),
                                 gridData: const FlGridData(show: false),
-                                barGroups: [
-                                  BarChartGroupData(x: 0, barRods: [BarChartRodData(toY: 4, color: Colors.white24, width: 8, borderRadius: BorderRadius.circular(4))]),
-                                  BarChartGroupData(x: 1, barRods: [BarChartRodData(toY: 6, color: Colors.white24, width: 8, borderRadius: BorderRadius.circular(4))]),
-                                  BarChartGroupData(x: 2, barRods: [BarChartRodData(toY: 5, color: Colors.white24, width: 8, borderRadius: BorderRadius.circular(4))]),
-                                  BarChartGroupData(x: 3, barRods: [BarChartRodData(toY: 8, color: Colors.white24, width: 8, borderRadius: BorderRadius.circular(4))]),
-                                  BarChartGroupData(x: 4, barRods: [BarChartRodData(toY: 7, color: Colors.white24, width: 8, borderRadius: BorderRadius.circular(4))]),
-                                  BarChartGroupData(x: 5, barRods: [BarChartRodData(toY: 9, color: Colors.white38, width: 8, borderRadius: BorderRadius.circular(4))]),
-                                  BarChartGroupData(x: 6, barRods: [BarChartRodData(toY: 10, color: cPrimary, width: 8, borderRadius: BorderRadius.circular(4))]),
-                                ],
+                                barGroups: List.generate(7, (i) => BarChartGroupData(
+                                  x: i,
+                                  barRods: [BarChartRodData(
+                                    toY: _chartValues[i],
+                                    color: i == 6 ? cPrimary : Colors.white24,
+                                    width: 8,
+                                    borderRadius: BorderRadius.circular(4),
+                                  )],
+                                )),
+                                
                               ),
                             ),
                           ),
@@ -2461,11 +2633,15 @@ class AdminMenuScreen extends StatefulWidget {
   final List<MenuItemModel> menu;
   final List<CategoryModel> cats;
   final void Function(String, {int? tableId}) onNavigate;
+  final String token;
+  final VoidCallback onChanged;
   const AdminMenuScreen({
     super.key,
     required this.menu,
     required this.cats,
     required this.onNavigate,
+    required this.token,
+    required this.onChanged,
   });
   @override
   State<AdminMenuScreen> createState() => _AdminMenuScreenState();
@@ -2474,6 +2650,231 @@ class AdminMenuScreen extends StatefulWidget {
 class _AdminMenuScreenState extends State<AdminMenuScreen> {
   String _filter = 'Tất cả';
   String _search = '';
+
+  void _toast(String msg, {bool success = true}) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: success ? cSuccess : cDanger,
+    ));
+  }
+
+  void _addItem() {
+    final nameCtrl = TextEditingController();
+    final priceCtrl = TextEditingController();
+    String selectedCat =
+        widget.cats.isNotEmpty ? widget.cats.first.name : '';
+    final imgCtrl = TextEditingController();
+    showDialog(context: context, builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => AlertDialog(
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
+              title: const Text('Thêm món mới',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                        controller: nameCtrl,
+                        decoration: const InputDecoration(
+                            labelText: 'Tên món *')),
+                    const SizedBox(height: 12),
+                    TextField(
+                        controller: priceCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                            labelText: 'Giá * (đồng)')),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: widget.cats
+                              .map((c) => c.name)
+                              .contains(selectedCat)
+                          ? selectedCat
+                          : (widget.cats.isNotEmpty
+                              ? widget.cats.first.name
+                              : ''),
+                      decoration:
+                          const InputDecoration(labelText: 'Danh mục'),
+                      items: widget.cats
+                          .map((c) =>
+                              DropdownMenuItem(value: c.name, child: Text(c.name)))
+                          .toList(),
+                      onChanged: (v) => setS(() => selectedCat = v ?? ''),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                        controller: imgCtrl,
+                        decoration: const InputDecoration(
+                            labelText:
+                                'URL ảnh (không bắt buộc)')),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Hủy')),
+                TextButton(
+                    onPressed: () async {
+                      if (nameCtrl.text.trim().isEmpty ||
+                          priceCtrl.text.trim().isEmpty) return;
+                      final cat = widget.cats.firstWhere(
+                          (c) => c.name == selectedCat,
+                          orElse: () => widget.cats.first);
+                      Navigator.pop(ctx);
+                      try {
+                        await ApiService.createMenuItem(widget.token, {
+                          'name': nameCtrl.text.trim(),
+                          'price':
+                              int.tryParse(priceCtrl.text.trim()) ?? 0,
+                          'category_id': cat.id,
+                          'image_url': imgCtrl.text.trim(),
+                          'available': true,
+                        });
+                        widget.onChanged();
+                        if (mounted) {
+                          _toast('Đã thêm món ${nameCtrl.text.trim()}');
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          _toast(
+                              e.toString().replaceFirst('Exception: ', ''),
+                              success: false);
+                        }
+                      }
+                    },
+                    child: const Text('Thêm')),
+              ],
+            )));
+  }
+
+  void _editItem(MenuItemModel item) {
+    final nameCtrl = TextEditingController(text: item.name);
+    final priceCtrl = TextEditingController(text: item.price.toString());
+    final imgCtrl = TextEditingController(text: item.imageUrl);
+    bool available = item.available;
+    final catNames = widget.cats.map((c) => c.name).toList();
+    final itemCat = widget.cats
+        .where((c) => c.id == item.categoryId)
+        .map((c) => c.name)
+        .toList();
+    String selectedCat = itemCat.isNotEmpty
+        ? itemCat.first
+        : (catNames.isNotEmpty ? catNames.first : '');
+    showDialog(context: context, builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => AlertDialog(
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
+              title: const Text('Sửa món',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                        controller: nameCtrl,
+                        decoration: const InputDecoration(
+                            labelText: 'Tên món *')),
+                    const SizedBox(height: 12),
+                    TextField(
+                        controller: priceCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                            labelText: 'Giá * (đồng)')),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: catNames.contains(selectedCat)
+                          ? selectedCat
+                          : (catNames.isNotEmpty ? catNames.first : ''),
+                      decoration:
+                          const InputDecoration(labelText: 'Danh mục'),
+                      items: catNames
+                          .map((n) =>
+                              DropdownMenuItem(value: n, child: Text(n)))
+                          .toList(),
+                      onChanged: (v) => setS(() => selectedCat = v ?? ''),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                        controller: imgCtrl,
+                        decoration: const InputDecoration(
+                            labelText: 'URL ảnh')),
+                    const SizedBox(height: 12),
+                    SwitchListTile(
+                      title: const Text('Còn hàng'),
+                      value: available,
+                      onChanged: (v) => setS(() => available = v),
+                      activeColor: cPrimary,
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Hủy')),
+                TextButton(
+                    onPressed: () async {
+                      if (nameCtrl.text.trim().isEmpty ||
+                          priceCtrl.text.trim().isEmpty) return;
+                      final cat = widget.cats.firstWhere(
+                          (c) => c.name == selectedCat,
+                          orElse: () => widget.cats.first);
+                      Navigator.pop(ctx);
+                      try {
+                        await ApiService.updateMenuItem(widget.token,
+                            item.id, {
+                          'name': nameCtrl.text.trim(),
+                          'price':
+                              int.tryParse(priceCtrl.text.trim()) ?? 0,
+                          'category_id': cat.id,
+                          'image_url': imgCtrl.text.trim(),
+                          'available': available,
+                        });
+                        widget.onChanged();
+                        if (mounted) _toast('Đã cập nhật món');
+                      } catch (e) {
+                        if (mounted) {
+                          _toast(
+                              e.toString().replaceFirst('Exception: ', ''),
+                              success: false);
+                        }
+                      }
+                    },
+                    child: const Text('Lưu')),
+              ],
+            )));
+  }
+
+  Future<void> _deleteItem(MenuItemModel item) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Xóa món'),
+        content: Text('Xóa "${item.name}" khỏi thực đơn?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Hủy')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Xóa')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await ApiService.deleteMenuItem(widget.token, item.id);
+      widget.onChanged();
+      if (mounted) _toast('Đã xóa món ${item.name}');
+    } catch (e) {
+      if (mounted) {
+        _toast(e.toString().replaceFirst('Exception: ', ''), success: false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2507,37 +2908,68 @@ class _AdminMenuScreenState extends State<AdminMenuScreen> {
             onTap: (v) => setState(() => _filter = v),
           ),
           // Management banner
-          GestureDetector(
-            onTap: () => widget.onNavigate('categories'),
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: cDarkCard,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.grid_view, color: Colors.white70, size: 18),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Quản lý danh mục',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13,
-                      ),
+          Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => widget.onNavigate('categories'),
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: cDarkCard,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.grid_view,
+                            color: Colors.white70, size: 18),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Quản lý danh mục',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                        Icon(Icons.arrow_forward_ios,
+                            color: Colors.white54, size: 14),
+                      ],
                     ),
                   ),
-                  Icon(
-                    Icons.arrow_forward_ios,
-                    color: Colors.white54,
-                    size: 14,
-                  ),
-                ],
+                ),
               ),
-            ),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 8),
+                child: GestureDetector(
+                  onTap: _addItem,
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: cPrimary,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.add, color: Colors.white, size: 16),
+                        SizedBox(width: 6),
+                        Text('Thêm món',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
           Expanded(
             child: ListView.separated(
@@ -2615,10 +3047,19 @@ class _AdminMenuScreenState extends State<AdminMenuScreen> {
                           ],
                         ),
                       ),
-                      const Icon(
-                        Icons.arrow_forward_ios,
-                        color: cMuted,
-                        size: 14,
+                      PopupMenuButton<String>(
+                        icon: const Icon(Icons.more_vert, color: cMuted, size: 20),
+                        onSelected: (action) {
+                          if (action == 'edit') _editItem(m);
+                          if (action == 'delete') _deleteItem(m);
+                        },
+                        itemBuilder: (_) => [
+                          PopupMenuItem(value: 'edit', child: Text('Sửa món')),
+                          PopupMenuItem(
+                              value: 'delete',
+                              child:
+                                  Text('Xóa món', style: TextStyle(color: cDanger))),
+                        ],
                       ),
                     ],
                   ),
@@ -4331,22 +4772,263 @@ class _AdminStaffScreenState extends State<AdminStaffScreen> {
 }
 
 // ─────────────── ADMIN SHIFTS ─────────────────────────────────────
-class AdminShiftsScreen extends StatelessWidget {
+class AdminShiftsScreen extends StatefulWidget {
+  final String token;
   final VoidCallback onBack;
-  const AdminShiftsScreen({super.key, required this.onBack});
+  const AdminShiftsScreen({super.key, required this.token, required this.onBack});
+  @override
+  State<AdminShiftsScreen> createState() => _AdminShiftsScreenState();
+}
+
+class _AdminShiftsScreenState extends State<AdminShiftsScreen> {
+  List<Map<String, dynamic>> _shifts = [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final list = await ApiService.getShifts(widget.token);
+      if (mounted) setState(() => _shifts = list);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _toast(String msg, {bool success = true}) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: success ? cSuccess : cDanger,
+    ));
+  }
+
+  void _addShift() {
+    final shiftCtrl = TextEditingController();
+    final startCtrl = TextEditingController(text: '08:00');
+    final endCtrl = TextEditingController(text: '14:00');
+    final dateCtrl = TextEditingController(
+        text: DateTime.now().toIso8601String().substring(0, 10));
+    final notesCtrl = TextEditingController();
+    showDialog(context: context, builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => AlertDialog(
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
+              title: const Text('Thêm ca làm việc',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                        controller: shiftCtrl,
+                        decoration: const InputDecoration(
+                            labelText: 'Tên ca * (VD: Buổi sáng)')),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                            child: TextField(
+                                controller: startCtrl,
+                                decoration: const InputDecoration(
+                                    labelText: 'Giờ bắt đầu'))),
+                        const SizedBox(width: 12),
+                        Expanded(
+                            child: TextField(
+                                controller: endCtrl,
+                                decoration: const InputDecoration(
+                                    labelText: 'Giờ kết thúc'))),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                        controller: dateCtrl,
+                        decoration: const InputDecoration(
+                            labelText: 'Ngày (yyyy-MM-dd)')),
+                    const SizedBox(height: 12),
+                    TextField(
+                        controller: notesCtrl,
+                        decoration:
+                            const InputDecoration(labelText: 'Ghi chú')),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Hủy')),
+                TextButton(
+                    onPressed: () async {
+                      if (shiftCtrl.text.trim().isEmpty) return;
+                      Navigator.pop(ctx);
+                      try {
+                        await ApiService.createShift(widget.token, {
+                          'shift': shiftCtrl.text.trim(),
+                          'start_time': startCtrl.text.trim(),
+                          'end_time': endCtrl.text.trim(),
+                          'date': dateCtrl.text.trim(),
+                          'notes': notesCtrl.text.trim(),
+                          'user_name': 'admin',
+                        });
+                        _load();
+                        if (mounted) _toast('Đã thêm ca làm việc');
+                      } catch (e) {
+                        if (mounted) {
+                          _toast(
+                              e.toString().replaceFirst('Exception: ', ''),
+                              success: false);
+                        }
+                      }
+                    },
+                    child: const Text('Thêm')),
+              ],
+            )));
+  }
+
+  Future<void> _deleteShift(int id) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Xóa ca làm việc'),
+        content: const Text('Bạn có chắc muốn xóa ca này?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Hủy')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Xóa')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await ApiService.deleteShift(widget.token, id);
+      _load();
+      if (mounted) _toast('Đã xóa ca làm việc');
+    } catch (e) {
+      if (mounted) {
+        _toast(e.toString().replaceFirst('Exception: ', ''), success: false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
       child: Column(
         children: [
-          _ScreenHeader(title: 'Ca làm việc', onBack: onBack),
-          Expanded(
-            child: const Center(
-              child: Text(
-                'Chưa có lịch ca trong cơ sở dữ liệu',
-                style: TextStyle(color: cMuted),
-              ),
+          _ScreenHeader(
+            title: 'Ca làm việc',
+            subtitle: '${_shifts.length} ca',
+            onBack: widget.onBack,
+          ),
+          if (_loading)
+            const Expanded(
+                child: Center(child: CircularProgressIndicator()))
+          else if (_error != null)
+            Expanded(
+              child: Center(
+                  child: Text('Lỗi: $_error',
+                      style: const TextStyle(color: cDanger, fontSize: 13))),
+            )
+          else
+            Expanded(
+              child: _shifts.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text('Chưa có ca làm việc',
+                              style: const TextStyle(
+                                  color: cMuted, fontSize: 14)),
+                          const SizedBox(height: 12),
+                          _PrimaryButton(
+                              label: 'Thêm ca đầu tiên', onTap: _addShift),
+                        ],
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _shifts.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 8),
+                      itemBuilder: (_, i) {
+                        final s = _shifts[i];
+                        final notes = s['notes']?.toString() ?? '';
+                        final date = s['date']?.toString() ?? '';
+                        return Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: cSurface,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: cLine),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                    color: cPrimarySoft,
+                                    borderRadius:
+                                        BorderRadius.circular(10)),
+                                child: const Icon(Icons.schedule,
+                                    color: cPrimary, size: 22),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text(s['shift']?.toString() ?? '',
+                                        style: const TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.bold,
+                                            color: cInk)),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                        '${s['start_time']} – ${s['end_time']}${date.isNotEmpty ? ' • $date' : ''}',
+                                        style: const TextStyle(
+                                            fontSize: 12, color: cMuted)),
+                                    if (notes.isNotEmpty)
+                                      Text(notes,
+                                          style: const TextStyle(
+                                              fontSize: 11,
+                                              color: cMuted,
+                                              fontStyle:
+                                                  FontStyle.italic)),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline,
+                                    color: cDanger, size: 20),
+                                onPressed: () => _deleteShift(s['id'] as int),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
             ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: _PrimaryButton(label: '+ Thêm ca mới', onTap: _addShift),
           ),
         ],
       ),
@@ -4611,92 +5293,169 @@ class AdminCategoriesScreen extends StatelessWidget {
 }
 
 // ─────────────── ADMIN NOTIFICATIONS ─────────────────────────────
-class AdminNotificationsScreen extends StatelessWidget {
+class AdminNotificationsScreen extends StatefulWidget {
+  final String token;
   final VoidCallback onBack;
-  const AdminNotificationsScreen({super.key, required this.onBack});
+  const AdminNotificationsScreen(
+      {super.key, required this.token, required this.onBack});
+  @override
+  State<AdminNotificationsScreen> createState() =>
+      _AdminNotificationsScreenState();
+}
+
+class _AdminNotificationsScreenState extends State<AdminNotificationsScreen> {
+  List<Map<String, dynamic>> _notifs = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final list = await ApiService.getNotifications(widget.token);
+      if (mounted) setState(() => _notifs = list);
+    } catch (_) {}
+    if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _markRead(int id) async {
+    try {
+      await ApiService.markNotificationRead(widget.token, id);
+      setState(() {});
+      _load();
+    } catch (_) {}
+  }
+
+  IconData _iconForLevel(String level) {
+    switch (level) {
+      case 'success':
+        return Icons.check_circle;
+      case 'warning':
+        return Icons.warning;
+      default:
+        return Icons.info;
+    }
+  }
+
+  Color _colorForLevel(String level) {
+    switch (level) {
+      case 'success':
+        return cSuccess;
+      case 'warning':
+        return cWarning;
+      default:
+        return cPrimary;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    const List<(String, String, bool, IconData, Color, Color)> notifs = [];
+    final unread = _notifs
+        .where((n) =>
+            n['read_flag'] != true && n['read_flag'] != 1)
+        .length;
     return SafeArea(
       child: Column(
         children: [
           _ScreenHeader(
             title: 'Thông báo',
-            subtitle: '${notifs.length} thông báo chưa đọc',
-            onBack: onBack,
+            subtitle: '$unread chưa đọc',
+            onBack: widget.onBack,
           ),
-          Expanded(
-            child: notifs.isEmpty
-                ? const Center(
-                    child: Text(
-                      'Chưa có thông báo trong cơ sở dữ liệu',
-                      style: TextStyle(color: cMuted),
-                    ),
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: notifs.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 8),
-                    itemBuilder: (_, i) {
-                      final n = notifs[i];
-                      return Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: n.$3 ? cBg : cSurface,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: n.$3 ? cLine : cLine),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 40,
-                              height: 40,
-                              decoration: BoxDecoration(
-                                color: n.$5,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Icon(n.$4, color: n.$6, size: 20),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    n.$1,
-                                    style: TextStyle(
-                                      fontWeight: n.$3
-                                          ? FontWeight.bold
-                                          : FontWeight.normal,
-                                      fontSize: 13,
-                                      color: cInk,
+          _loading
+              ? const Expanded(
+                  child: Center(child: CircularProgressIndicator()))
+              : Expanded(
+                  child: _notifs.isEmpty
+                      ? const Center(
+                          child: Text('Không có thông báo',
+                              style: TextStyle(
+                                  color: cMuted, fontSize: 13)))
+                      : ListView.separated(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: _notifs.length,
+                          separatorBuilder: (_, _) =>
+                              const SizedBox(height: 8),
+                          itemBuilder: (_, i) {
+                            final n = _notifs[i];
+                            final level =
+                                n['level']?.toString() ?? 'info';
+                            final isRead =
+                                n['read_flag'] == true ||
+                                    n['read_flag'] == 1;
+                            return GestureDetector(
+                              onTap: () {
+                                if (!isRead) {
+                                  _markRead(n['id'] as int);
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: isRead ? cSurface : cPrimarySoft,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                      color:
+                                          isRead ? cLine : cPrimary.withAlpha(60)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 38,
+                                      height: 38,
+                                      decoration: BoxDecoration(
+                                          color: _colorForLevel(level)
+                                              .withAlpha(30),
+                                          borderRadius:
+                                              BorderRadius.circular(9)),
+                                      child: Icon(_iconForLevel(level),
+                                          color: _colorForLevel(level),
+                                          size: 20),
                                     ),
-                                  ),
-                                  Text(
-                                    n.$2,
-                                    style: const TextStyle(
-                                      color: cMuted,
-                                      fontSize: 11,
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                              n['title']?.toString() ?? '',
+                                              style: TextStyle(
+                                                  fontSize: 13,
+                                                  fontWeight: isRead
+                                                      ? FontWeight.normal
+                                                      : FontWeight.bold,
+                                                  color: cInk)),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                              n['body']?.toString() ?? '',
+                                              style: const TextStyle(
+                                                  fontSize: 11,
+                                                  color: cMuted),
+                                              maxLines: 2,
+                                              overflow:
+                                                  TextOverflow.ellipsis),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            if (n.$3)
-                              Container(
-                                width: 8,
-                                height: 8,
-                                decoration: const BoxDecoration(
-                                  color: cPrimary,
-                                  shape: BoxShape.circle,
+                                    if (!isRead)
+                                      Container(
+                                          width: 8,
+                                          height: 8,
+                                          decoration: const BoxDecoration(
+                                              color: cPrimary,
+                                              shape: BoxShape.circle)),
+                                  ],
                                 ),
                               ),
-                          ],
+                            );
+                          },
                         ),
-                      );
-                    },
                   ),
-          ),
         ],
       ),
     );
