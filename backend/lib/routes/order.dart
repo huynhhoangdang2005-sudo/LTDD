@@ -1,15 +1,14 @@
 import 'dart:convert';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
-import 'package:mysql1/mysql1.dart';
 import '../db.dart';
 
 class OrderRouter {
-  final Future<MySqlConnection> Function() _getDb;
-  OrderRouter([Future<MySqlConnection> Function()? getDb])
+  final Future<DbConn> Function() _getDb;
+  OrderRouter([Future<DbConn> Function()? getDb])
       : _getDb = getDb ?? Database.getConnection;
 
-  Future<MySqlConnection> get _dbFuture => _getDb();
+  Future<DbConn> get _dbFuture => _getDb();
 
   Router get router {
     final router = Router();
@@ -50,24 +49,27 @@ class OrderRouter {
     }
 
     // Insert order
-    final orderResult = await conn.query(
+    final orderId = await conn.insertId(
         'INSERT INTO orders (user_id, table_id, total, status) VALUES (?, ?, ?, ?)',
         [userId, tableId, total, 'pending']);
-    final orderId = orderResult.insertId;
 
     // Insert order items
     for (var item in items) {
       final int menuItemId = item['menu_item_id'];
       final int quantity = item['quantity'];
-      await conn.query(
+      await conn.execute(
           'INSERT INTO order_items (order_id, menu_item_id, quantity) VALUES (?,?,?)',
           [orderId, menuItemId, quantity]);
     }
-    await conn.query(
-        "UPDATE tables SET status = 'Đang phục vụ' WHERE id = ?", [tableId]);
+    await conn.execute(
+        "UPDATE [tables] SET status = N'Đang phục vụ' WHERE id = ?", [tableId]);
 
     return Response.ok(
-        jsonEncode({'order_id': orderId, 'total': total, 'status': 'pending'}),
+        jsonEncode({
+          'order_id': orderId,
+          'total': total,
+          'status': 'pending'
+        }),
         headers: {'Content-Type': 'application/json'});
   }
 
@@ -75,7 +77,7 @@ class OrderRouter {
   Future<Response> _listOrders(Request request) async {
     final conn = await _dbFuture;
     final userIdParam = request.url.queryParameters['user_id'];
-    Results results;
+    List<Map<String, dynamic>> results;
     if (userIdParam != null) {
       results = await conn.query(
         'SELECT id, user_id, table_id, total, status, created_at FROM orders WHERE user_id = ? ORDER BY id DESC',
@@ -90,7 +92,7 @@ class OrderRouter {
               'id': row['id'],
               'user_id': row['user_id'],
               'table_id': row['table_id'],
-              'total': row['total'],
+              'total': row['total'] is num ? (row['total'] as num).toInt() : row['total'],
               'status': row['status'],
               'created_at': row['created_at'].toString()
             })
@@ -122,7 +124,7 @@ class OrderRouter {
               'menu_item_id': r['menu_item_id'],
               'quantity': r['quantity'],
               'name': r['name'],
-              'price': r['price'],
+              'price': r['price'] is num ? (r['price'] as num).toInt() : r['price'],
             })
         .toList();
     return Response.ok(
@@ -130,7 +132,9 @@ class OrderRouter {
           'id': order['id'],
           'user_id': order['user_id'],
           'table_id': order['table_id'],
-          'total': order['total'],
+          'total': order['total'] is num
+              ? (order['total'] as num).toInt()
+              : order['total'],
           'status': order['status'],
           'created_at': order['created_at'].toString(),
           'items': items,
@@ -164,31 +168,37 @@ class OrderRouter {
           headers: {'Content-Type': 'application/json'});
     }
     final tableId = order.first['table_id'];
-    await conn
-        .query('UPDATE orders SET status = ? WHERE id = ?', [status, orderId]);
+    if (tableId != null) {
+      await conn
+          .execute('UPDATE orders SET status = ? WHERE id = ?', [status, orderId]);
 
-    final tableOrders = await conn.query('''
-      SELECT
-        SUM(status IN ('pending', 'cooking')) AS in_progress,
-        SUM(status = 'waiting_payment') AS waiting_payment
-      FROM orders
-      WHERE table_id = ?
-    ''', [tableId]);
-    final inProgress = (tableOrders.first['in_progress'] as num?)?.toInt() ?? 0;
-    final waitingPayment =
-        (tableOrders.first['waiting_payment'] as num?)?.toInt() ?? 0;
-    final tableStatus = inProgress > 0
-        ? 'Đang phục vụ'
-        : waitingPayment > 0
-            ? 'Chờ thanh toán'
-            : 'Trống';
-    await conn.query(
-        'UPDATE tables SET status = ? WHERE id = ?', [tableStatus, tableId]);
+      final tableOrders = await conn.query('''
+        SELECT
+          SUM(CASE WHEN status IN ('pending', 'cooking') THEN 1 ELSE 0 END) AS in_progress,
+          SUM(CASE WHEN status = 'waiting_payment' THEN 1 ELSE 0 END) AS waiting_payment
+        FROM orders
+        WHERE table_id = ?
+      ''', [tableId]);
+      final inProgress =
+          (tableOrders.first['in_progress'] as num?)?.toInt() ?? 0;
+      final waitingPayment =
+          (tableOrders.first['waiting_payment'] as num?)?.toInt() ?? 0;
+      final tableStatus = inProgress > 0
+          ? 'Đang phục vụ'
+          : waitingPayment > 0
+              ? 'Chờ thanh toán'
+              : 'Trống';
+      await conn.execute(
+          'UPDATE [tables] SET status = ? WHERE id = ?', [tableStatus, tableId]);
+    } else {
+      await conn
+          .execute('UPDATE orders SET status = ? WHERE id = ?', [status, orderId]);
+    }
 
     return Response.ok(
         jsonEncode({
           'message': 'order status updated',
-          'id': int.parse(id),
+          'id': orderId,
           'status': status
         }),
         headers: {'Content-Type': 'application/json'});

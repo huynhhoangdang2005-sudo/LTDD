@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
-import 'package:mysql1/mysql1.dart';
 import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
 import '../db.dart';
 
@@ -15,11 +14,11 @@ const _jwtSecret = 'your-very-secret-key';
 /// PUT  /users/<id>/status - Khoá / mở khoá tài khoản
 /// DELETE /users/<id>    - Xoá nhân viên
 class UserRouter {
-  final Future<MySqlConnection> Function() _getDb;
-  UserRouter([Future<MySqlConnection> Function()? getDb])
+  final Future<DbConn> Function() _getDb;
+  UserRouter([Future<DbConn> Function()? getDb])
       : _getDb = getDb ?? Database.getConnection;
 
-  Future<MySqlConnection> get _dbFuture => _getDb();
+  Future<DbConn> get _dbFuture => _getDb();
 
   Router get router {
     final r = Router();
@@ -38,7 +37,7 @@ class UserRouter {
     final denied = await _authorizeManager(request, conn);
     if (denied != null) return denied;
     final results = await conn.query(
-      "SELECT id, username, full_name, role, status, phone, created_at FROM users WHERE role != 'Khách hàng' AND status != 'deleted' ORDER BY id ASC",
+      "SELECT id, username, full_name, role, status, phone, created_at FROM users WHERE role != N'Khách hàng' AND status != N'deleted' ORDER BY id ASC",
     );
     final list = results.map((row) => _rowToMap(row)).toList();
     return Response.ok(jsonEncode(list),
@@ -87,12 +86,12 @@ class UserRouter {
           body: jsonEncode({'error': 'Username đã tồn tại'}),
           headers: {'Content-Type': 'application/json'});
     }
-    final result = await conn.query(
+    final userId = await conn.insertId(
       'INSERT INTO users (username, password, full_name, role, status, phone) VALUES (?, ?, ?, ?, ?, ?)',
       [username, password, fullName, role, 'active', phone],
     );
     return Response.ok(
-      jsonEncode({'message': 'user created', 'id': result.insertId}),
+      jsonEncode({'message': 'user created', 'id': userId}),
       headers: {'Content-Type': 'application/json'},
     );
   }
@@ -105,7 +104,7 @@ class UserRouter {
     final denied = await _authorizeManager(request, conn);
     if (denied != null) return denied;
     final updates = <String>[];
-    final params = <dynamic>[];
+    final params = <Object?>[];
     if (data['full_name'] != null) {
       updates.add('full_name = ?');
       params.add(data['full_name']);
@@ -128,7 +127,7 @@ class UserRouter {
           headers: {'Content-Type': 'application/json'});
     }
     params.add(int.parse(id));
-    await conn.query(
+    await conn.execute(
         'UPDATE users SET ${updates.join(', ')} WHERE id = ?', params);
     return Response.ok(jsonEncode({'message': 'user updated'}),
         headers: {'Content-Type': 'application/json'});
@@ -147,7 +146,7 @@ class UserRouter {
     final conn = await _dbFuture;
     final denied = await _authorizeManager(request, conn);
     if (denied != null) return denied;
-    await conn.query(
+    await conn.execute(
         'UPDATE users SET status = ? WHERE id = ?', [status, int.parse(id)]);
     return Response.ok(jsonEncode({'message': 'status updated'}),
         headers: {'Content-Type': 'application/json'});
@@ -169,15 +168,15 @@ class UserRouter {
           body: jsonEncode({'error': 'Không thể xóa tài khoản quản lý'}),
           headers: {'Content-Type': 'application/json'});
     }
-    await conn.query(
-        "UPDATE users SET status = 'deleted' WHERE id = ? AND role != 'Quản lý'",
+    await conn.execute(
+        "UPDATE users SET status = N'deleted' WHERE id = ? AND role != N'Quản lý'",
         [int.parse(id)]);
     return Response.ok(jsonEncode({'message': 'user deleted'}),
         headers: {'Content-Type': 'application/json'});
   }
 
   Future<Response?> _authorizeManager(
-      Request request, MySqlConnection conn) async {
+      Request request, DbConn conn) async {
     final authorization = request.headers['authorization'];
     if (authorization == null || !authorization.startsWith('Bearer ')) {
       return Response.forbidden(

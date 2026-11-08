@@ -1,16 +1,15 @@
 import 'dart:convert';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
-import 'package:mysql1/mysql1.dart';
 import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
 import '../db.dart';
 
 class AuthRouter {
-  final Future<MySqlConnection> Function() _getDb;
-  AuthRouter([Future<MySqlConnection> Function()? getDb])
+  final Future<DbConn> Function() _getDb;
+  AuthRouter([Future<DbConn> Function()? getDb])
       : _getDb = getDb ?? Database.getConnection;
 
-  Future<MySqlConnection> get _dbFuture => _getDb();
+  Future<DbConn> get _dbFuture => _getDb();
 
   Router get router {
     final router = Router();
@@ -30,16 +29,25 @@ class AuthRouter {
     }
     final conn = await _dbFuture;
     // Simple password storage (plaintext) for demo – replace with hash in prod
-    final result = await conn.query(
-        'INSERT INTO users (username, password) VALUES (?, ?)',
-        [username, password]);
-    return Response.ok(
-        jsonEncode({
-          'message': 'registered',
-          'user_id': result.insertId,
-          'username': username
-        }),
-        headers: {'Content-Type': 'application/json'});
+    try {
+      final userId = await conn.insertId(
+          'INSERT INTO users (username, password) VALUES (?, ?)',
+          [username, password]);
+      return Response.ok(
+          jsonEncode({
+            'message': 'registered',
+            'user_id': userId,
+            'username': username
+          }),
+          headers: {'Content-Type': 'application/json'});
+    } catch (e) {
+      if (e.toString().contains('UQ_users_username')) {
+        return Response(409,
+            body: jsonEncode({'error': 'Username đã tồn tại'}),
+            headers: {'Content-Type': 'application/json'});
+      }
+      rethrow;
+    }
   }
 
   Future<Response> _login(Request request) async {
@@ -66,13 +74,11 @@ class AuthRouter {
     final userId = user['id'];
     final role = user['role'] ?? 'Khách hàng';
     // Generate JWT (valid 24h)
-    // Create JWT payload without expiration
     final jwt = JWT({
       'sub': userId,
       'username': username,
       'role': role,
     });
-    // Sign the token with expiration (24 hours)
     final token = jwt.sign(
       SecretKey('your-very-secret-key'),
       expiresIn: const Duration(hours: 24),

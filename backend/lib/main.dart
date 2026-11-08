@@ -30,7 +30,8 @@ Middleware corsMiddleware = (Handler innerHandler) {
       final response = await innerHandler(request);
       return response.change(headers: corsHeaders);
     } catch (e, stack) {
-      _log.severe('Error processing request ${request.method} ${request.url}: $e\n$stack');
+      _log.severe(
+          'Error processing request ${request.method} ${request.url}: $e\n$stack');
       return Response.internalServerError(
         body: jsonEncode({'error': e.toString()}),
         headers: {
@@ -45,7 +46,8 @@ Middleware corsMiddleware = (Handler innerHandler) {
 Future<void> main() async {
   // Initialize logging
   Logger.root.level = Level.ALL;
-  Logger.root.onRecord.listen((r) => stdout.writeln('[${r.level.name}] ${r.time}: ${r.message}'));
+  Logger.root.onRecord.listen(
+      (r) => stdout.writeln('[${r.level.name}] ${r.time}: ${r.message}'));
 
   // Load environment variables (if .env exists)
   Config.loadEnv();
@@ -53,9 +55,15 @@ Future<void> main() async {
   // Test database connection at startup
   try {
     await Database.getConnection();
-    _log.info('Initial MySQL connection verified successfully.');
+    _log.info('Initial SQL Server connection verified successfully.');
   } catch (e) {
-    _log.warning('Initial MySQL connection failed: $e. Server will retry when requests arrive.');
+    _log.warning(
+        'Initial SQL Server connection failed: $e. Server will retry when requests arrive.');
+    _log.warning(
+        '  -> host=${Config.dbHost} port=${Config.dbPort} user=${Config.dbUser} db=${Config.dbName}');
+    _log.warning(
+        '  Hint: ensure the target instance is in Mixed Mode authentication');
+    _log.warning('  and the service has been restarted (see backend/enable-mixed-mode.bat).');
   }
 
   // Build router

@@ -1,15 +1,14 @@
 import 'dart:convert';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
-import 'package:mysql1/mysql1.dart';
 import '../db.dart';
 
 class MenuRouter {
-  final Future<MySqlConnection> Function() _getDb;
-  MenuRouter([Future<MySqlConnection> Function()? getDb])
+  final Future<DbConn> Function() _getDb;
+  MenuRouter([Future<DbConn> Function()? getDb])
       : _getDb = getDb ?? Database.getConnection;
 
-  Future<MySqlConnection> get _dbFuture => _getDb();
+  Future<DbConn> get _dbFuture => _getDb();
 
   Router get router {
     final router = Router();
@@ -28,7 +27,8 @@ class MenuRouter {
   // ---------- Categories ----------
   Future<Response> _getCategories(Request request) async {
     final conn = await _dbFuture;
-    final results = await conn.query('SELECT id, name FROM categories');
+    final results =
+        await conn.query('SELECT id, name FROM categories ORDER BY id');
     final list =
         results.map((row) => {'id': row['id'], 'name': row['name']}).toList();
     return Response.ok(jsonEncode(list),
@@ -42,7 +42,7 @@ class MenuRouter {
     if (name == null)
       return Response.badRequest(body: jsonEncode({'error': 'name required'}));
     final conn = await _dbFuture;
-    await conn.query('INSERT INTO categories (name) VALUES (?)', [name]);
+    await conn.execute('INSERT INTO categories (name) VALUES (?)', [name]);
     return Response.ok(jsonEncode({'message': 'category created'}),
         headers: {'Content-Type': 'application/json'});
   }
@@ -54,7 +54,7 @@ class MenuRouter {
     if (name == null)
       return Response.badRequest(body: jsonEncode({'error': 'name required'}));
     final conn = await _dbFuture;
-    await conn.query(
+    await conn.execute(
         'UPDATE categories SET name = ? WHERE id = ?', [name, int.parse(id)]);
     return Response.ok(jsonEncode({'message': 'category updated'}),
         headers: {'Content-Type': 'application/json'});
@@ -62,7 +62,8 @@ class MenuRouter {
 
   Future<Response> _deleteCategory(Request request, String id) async {
     final conn = await _dbFuture;
-    await conn.query('DELETE FROM categories WHERE id = ?', [int.parse(id)]);
+    await conn.execute(
+        'DELETE FROM categories WHERE id = ?', [int.parse(id)]);
     return Response.ok(jsonEncode({'message': 'category deleted'}),
         headers: {'Content-Type': 'application/json'});
   }
@@ -71,12 +72,12 @@ class MenuRouter {
   Future<Response> _getItems(Request request) async {
     final conn = await _dbFuture;
     final results = await conn.query(
-        'SELECT id, name, price, category_id, image_url, available FROM menu_items');
+        'SELECT id, name, price, category_id, image_url, available FROM menu_items ORDER BY id');
     final list = results
         .map((row) => {
               'id': row['id'],
               'name': row['name'],
-              'price': row['price'],
+              'price': row['price'] is num ? (row['price'] as num).toInt() : row['price'],
               'category_id': row['category_id'],
               'image_url': row['image_url'] ?? '',
               'available': row['available'] == 1 || row['available'] == true,
@@ -99,9 +100,10 @@ class MenuRouter {
           body: jsonEncode({'error': 'name, price, category_id required'}));
     }
     final conn = await _dbFuture;
-    await conn.query(
+    final availBit = available == true || available == 1;
+    await conn.execute(
         'INSERT INTO menu_items (name, price, category_id, image_url, available) VALUES (?,?,?,?,?)',
-        [name, price, categoryId, imageUrl, available]);
+        [name, price, categoryId, imageUrl, availBit ? 1 : 0]);
     return Response.ok(jsonEncode({'message': 'menu item created'}),
         headers: {'Content-Type': 'application/json'});
   }
@@ -124,7 +126,7 @@ class MenuRouter {
     }
     final conn = await _dbFuture;
     final updates = <String>[];
-    final params = <dynamic>[];
+    final params = <Object?>[];
     if (name != null) {
       updates.add('name = ?');
       params.add(name);
@@ -143,10 +145,10 @@ class MenuRouter {
     }
     if (available != null) {
       updates.add('available = ?');
-      params.add(available);
+      params.add(available == true || available == 1 ? 1 : 0);
     }
     params.add(int.parse(id));
-    await conn.query(
+    await conn.execute(
         'UPDATE menu_items SET ${updates.join(', ')} WHERE id = ?', params);
     return Response.ok(jsonEncode({'message': 'menu item updated'}),
         headers: {'Content-Type': 'application/json'});
@@ -154,7 +156,7 @@ class MenuRouter {
 
   Future<Response> _deleteItem(Request request, String id) async {
     final conn = await _dbFuture;
-    await conn.query('DELETE FROM menu_items WHERE id = ?', [int.parse(id)]);
+    await conn.execute('DELETE FROM menu_items WHERE id = ?', [int.parse(id)]);
     return Response.ok(jsonEncode({'message': 'menu item deleted'}),
         headers: {'Content-Type': 'application/json'});
   }

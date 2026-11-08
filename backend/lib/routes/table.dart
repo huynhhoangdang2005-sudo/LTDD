@@ -1,15 +1,14 @@
 import 'dart:convert';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
-import 'package:mysql1/mysql1.dart';
 import '../db.dart';
 
 class TableRouter {
-  final Future<MySqlConnection> Function() _getDb;
-  TableRouter([Future<MySqlConnection> Function()? getDb])
+  final Future<DbConn> Function() _getDb;
+  TableRouter([Future<DbConn> Function()? getDb])
       : _getDb = getDb ?? Database.getConnection;
 
-  Future<MySqlConnection> get _dbFuture => _getDb();
+  Future<DbConn> get _dbFuture => _getDb();
 
   Router get router {
     final router = Router();
@@ -23,10 +22,11 @@ class TableRouter {
 
   Future<Response> _listTables(Request request) async {
     final conn = await _dbFuture;
-    await conn.query('''
-      UPDATE tables
-      SET status = 'Trống'
-      WHERE status = 'Chờ thanh toán'
+    // Reset tables that show "waiting to pay" but no longer have an open order.
+    await conn.execute('''
+      UPDATE [tables]
+      SET status = N'Trống'
+      WHERE status = N'Chờ thanh toán'
         AND id NOT IN (
           SELECT table_id
           FROM orders
@@ -35,7 +35,7 @@ class TableRouter {
         )
     ''');
     final results = await conn
-        .query('SELECT id, number, seats, status FROM tables ORDER BY number');
+        .query('SELECT id, number, seats, status FROM [tables] ORDER BY number');
     final list = results
         .map((row) => {
               'id': row['id'],
@@ -59,8 +59,8 @@ class TableRouter {
           body: jsonEncode({'error': 'number and seats required'}));
     }
     final conn = await _dbFuture;
-    await conn.query(
-        'INSERT INTO tables (number, seats, status) VALUES (?, ?, ?)',
+    await conn.execute(
+        'INSERT INTO [tables] (number, seats, status) VALUES (?, ?, ?)',
         [number, seats, status]);
     return Response.ok(jsonEncode({'message': 'table created'}),
         headers: {'Content-Type': 'application/json'});
@@ -78,7 +78,7 @@ class TableRouter {
     }
     final conn = await _dbFuture;
     final updates = <String>[];
-    final params = <dynamic>[];
+    final params = <Object?>[];
     if (number != null) {
       updates.add('number = ?');
       params.add(number);
@@ -92,8 +92,8 @@ class TableRouter {
       params.add(status);
     }
     params.add(int.parse(id));
-    await conn.query(
-        'UPDATE tables SET ${updates.join(', ')} WHERE id = ?', params);
+    await conn.execute(
+        'UPDATE [tables] SET ${updates.join(', ')} WHERE id = ?', params);
     return Response.ok(jsonEncode({'message': 'table updated'}),
         headers: {'Content-Type': 'application/json'});
   }
@@ -107,15 +107,16 @@ class TableRouter {
           body: jsonEncode({'error': 'status required'}));
     }
     final conn = await _dbFuture;
-    await conn.query(
-        'UPDATE tables SET status = ? WHERE id = ?', [status, int.parse(id)]);
+    await conn.execute(
+        'UPDATE [tables] SET status = ? WHERE id = ?', [status, int.parse(id)]);
     return Response.ok(jsonEncode({'message': 'table status updated'}),
         headers: {'Content-Type': 'application/json'});
   }
 
   Future<Response> _deleteTable(Request request, String id) async {
     final conn = await _dbFuture;
-    await conn.query('DELETE FROM tables WHERE id = ?', [int.parse(id)]);
+    await conn.execute(
+        'DELETE FROM [tables] WHERE id = ?', [int.parse(id)]);
     return Response.ok(jsonEncode({'message': 'table deleted'}),
         headers: {'Content-Type': 'application/json'});
   }

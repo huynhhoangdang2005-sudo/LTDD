@@ -52,5 +52,9 @@ app.*.map.json
 **/dist/
 .pnpm-store/
 
-# Backend env
+# Backend env (contains DB password - never commit)
 backend/.env
+
+# Agent / tooling cache (do not commit)
+.agnes/
+.vs/

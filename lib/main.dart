@@ -10,6 +10,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:flutter/services.dart' show rootBundle;
 
 // ─────────────────────────── COLORS ────────────────────────────
 const cPrimary = Color(0xffb84c24);
@@ -1165,6 +1166,7 @@ class _AdminShellState extends State<AdminShell> {
   String? _receiptTableCode;
   int? _receiptAmount;
   String? _receiptMethod;
+  List<Map<String, dynamic>> _receiptItems = [];
 
   // Order screen
   int? _orderingTableId;
@@ -1347,6 +1349,9 @@ class _AdminShellState extends State<AdminShell> {
 
     _receiptTableCode = tbl.code;
     _receiptAmount = _tableOrderTotals[_payingTableId] ?? 0;
+    _receiptItems = List<Map<String, dynamic>>.from(
+      _tableOrderItems[_payingTableId] ?? const [],
+    );
     _receiptMethod = _payMethod == 'cash'
         ? 'Tiền mặt'
         : _payMethod == 'bank'
@@ -1508,6 +1513,7 @@ class _AdminShellState extends State<AdminShell> {
         body = AdminReceiptScreen(
           tableCode: _receiptTableCode ?? '',
           amount: _receiptAmount ?? 0,
+          items: _receiptItems,
           method: _receiptMethod ?? 'Tiền mặt',
           cashier: widget.user.fullName.isEmpty
               ? widget.user.username
@@ -3412,6 +3418,7 @@ class _PaymentMethodTile extends StatelessWidget {
 class AdminReceiptScreen extends StatelessWidget {
   final String tableCode;
   final int amount;
+  final List<Map<String, dynamic>> items;
   final String method;
   final String cashier;
   final VoidCallback onHome;
@@ -3419,6 +3426,7 @@ class AdminReceiptScreen extends StatelessWidget {
     super.key,
     required this.tableCode,
     required this.amount,
+    required this.items,
     required this.method,
     required this.cashier,
     required this.onHome,
@@ -3550,7 +3558,17 @@ class AdminReceiptScreen extends StatelessWidget {
                       Expanded(
                         child: OutlinedButton.icon(
                           onPressed: () async {
-                            final doc = pw.Document();
+                                                        final doc = pw.Document();
+                            final arialN =
+                                pw.Font.ttf(await rootBundle.load('assets/fonts/arial.ttf'));
+                            final arialB =
+                                pw.Font.ttf(await rootBundle.load('assets/fonts/arialbd.ttf'));
+                            pw.TextStyle stl(double size, {bool bold = false}) => pw.TextStyle(
+                              fontNormal: arialN,
+                              fontBold: arialB,
+                              fontSize: size,
+                              fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+                            );
                             doc.addPage(
                               pw.Page(
                                 pageFormat: PdfPageFormat.roll80,
@@ -3558,33 +3576,49 @@ class AdminReceiptScreen extends StatelessWidget {
                                   return pw.Column(
                                     crossAxisAlignment: pw.CrossAxisAlignment.center,
                                     children: [
-                                      pw.Text('NHA HANG HUONG VIET', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+                                      pw.Text('NHA HANG HUONG VIET', style: stl(14, bold: true)),
                                       pw.SizedBox(height: 4),
-                                      pw.Text('HOA DON THANH TOAN', style: const pw.TextStyle(fontSize: 12)),
+                                      pw.Text('HOA DON THANH TOAN', style: stl(12)),
                                       pw.Divider(),
                                       pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-                                        pw.Text('Ban:'),
-                                        pw.Text(tableCode),
+                                        pw.Text('Ban:', style: stl(10)),
+                                        pw.Text(tableCode, style: stl(10)),
                                       ]),
                                       pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-                                        pw.Text('Thoi gian:'),
-                                        pw.Text(timeStr),
+                                        pw.Text('Thoi gian:', style: stl(10)),
+                                        pw.Text(timeStr, style: stl(10)),
                                       ]),
                                       pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-                                        pw.Text('PT Thanh toan:'),
-                                        pw.Text(method),
+                                        pw.Text('PT Thanh toan:', style: stl(10)),
+                                        pw.Text(method, style: stl(10)),
                                       ]),
                                       pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-                                        pw.Text('Thu ngan:'),
-                                        pw.Text(cashier),
+                                        pw.Text('Thu ngan:', style: stl(10)),
+                                        pw.Text(cashier, style: stl(10)),
                                       ]),
+                                      // Chi tiet mon (dish name + quantity + subtotal)
+                                      if (items.isNotEmpty) ...[
+                                        pw.Divider(),
+                                        ...items.map((it) {
+                                          final qty = (it['quantity'] as num?)?.toInt() ?? 1;
+                                          final price = (it['price'] as num?)?.round() ?? 0;
+                                          final name = (it['name'] as String?) ?? '';
+                                          return pw.Row(
+                                            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              pw.Text('$name x$qty', style: stl(9)),
+                                              pw.Text(formatMoney(price * qty), style: stl(9)),
+                                            ],
+                                          );
+                                        }),
+                                      ],
                                       pw.Divider(),
                                       pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-                                        pw.Text('TONG CONG:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                                        pw.Text(formatMoney(amount), style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                                        pw.Text('TONG CONG:', style: stl(11, bold: true)),
+                                        pw.Text(formatMoney(amount), style: stl(11, bold: true)),
                                       ]),
                                       pw.SizedBox(height: 10),
-                                      pw.Text('Cam on quy khach & Hen gap lai!', style: const pw.TextStyle(fontSize: 9)),
+                                      pw.Text('Cam on quy khach & Hen gap lai!', style: stl(9)),
                                     ],
                                   );
                                 },
