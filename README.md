@@ -20,24 +20,20 @@ A full‑stack restaurant management solution built with:
 ## Project Structure
 
 ```
-restaurant_app/
-├─ backend/          # Dart Shelf API
-│   ├─ lib/
-│   │   ├─ main.dart
-│   │   └─ routes/ (auth, menu, order, table, report)
-│   └─ pubspec.yaml
-└─ mobile/           # Flutter client
-    ├─ lib/
-    │   ├─ main.dart
-    │   ├─ models/ (user, menu_item, order, table, report)
-    │   ├─ services/ (api_service.dart)
-    │   └─ screens/ (login, menu, cart, payment, table, report)
-    └─ pubspec.yaml
+LTDD/
+├─ backend/          # Dart Shelf API and database scripts
+├─ frontend/         # React/Vite web frontend
+├─ lib/              # Flutter application source
+├─ test/             # Flutter tests
+├─ assets/           # Flutter assets
+├─ RestaurantDB.sql  # SQL Server database setup script
+├─ pubspec.yaml      # Flutter dependencies
+└─ run-project.bat   # Windows launcher
 ```
 
 ## Prerequisites
 
-- **Flutter SDK** (>=3.19) – https://flutter.dev/docs/get-started/install
+- **Flutter SDK** (>=3.19) – https://flutter.dev/docs/get-started/install
 - **Dart SDK** (bundled with Flutter) – used for the backend as well.
 - **MySQL** server (local or remote) – create a database `restaurant_db`.
 
